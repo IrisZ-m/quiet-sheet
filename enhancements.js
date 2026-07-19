@@ -1,4 +1,4 @@
-﻿/* Anki text importer and resizable study columns. */
+/* Anki text importer and resizable study columns. */
 const COLUMN_DEFAULTS=[80,220,130,140,110,140,110,180];
 let columnWidths=(()=>{try{const value=JSON.parse(localStorage.getItem('quiet-sheet-column-widths')||'null');return Array.isArray(value)&&value.length===8?value:COLUMN_DEFAULTS.slice()}catch{return COLUMN_DEFAULTS.slice()}})();
 let pendingAnki=null;
@@ -47,13 +47,53 @@ function showAnkiDialog(parsed,fileName){
   ankiDialog.innerHTML=`<div class="importPanel"><header><div><b>Anki 文本导入</b><small>${safe(fileName)} · ${parsed.rows.length} 条记录 · 分隔符 ${safe(sepName)}</small></div><button id="closeImport" aria-label="关闭">×</button></header><section class="importBody"><h3>1. 映射字段</h3><div class="mappingGrid">${parsed.columns.map((name,i)=>`<label><span><b>${safe(name||`字段 ${i+1}`)}</b><small>${safe(sampleText(parsed.rows[0]?.[i]))}</small></span><select data-map="${i}">${mappingOptions(suggested[i])}</select></label>`).join('')}</div><h3>2. 数据预览</h3><div class="importPreview"><table><thead><tr>${parsed.columns.map(x=>`<th>${safe(x)}</th>`).join('')}</tr></thead><tbody>${parsed.rows.slice(0,6).map(r=>`<tr>${r.map(x=>`<td>${safe(sampleText(x))}</td>`).join('')}</tr>`).join('')}</tbody></table></div><div class="importOptions"><label>重复内容 <select id="duplicateMode"><option value="update">更新已有内容</option><option value="skip">跳过重复内容</option><option value="copy">保留为副本</option></select></label><span>${parsed.html?'检测到 Anki HTML，导入时会转换为安全文本。':'内容将按纯文本导入。'}</span></div></section><footer><button id="cancelImport">取消</button><button class="primary" id="confirmImport">导入 ${parsed.rows.length} 条</button></footer></div>`;
   $('#closeImport').onclick=$('#cancelImport').onclick=()=>ankiDialog.close();$('#confirmImport').onclick=confirmAnkiImport;ankiDialog.showModal();
 }
-function plainContent(value,allowHtml){let text=String(value||'');text=text.replace(/\[sound:([^\]]+)\]/gi,'[音频：$1]').replace(/<img[^>]*>/gi,'[图片]');if(allowHtml||/<\/?[a-z][\s\S]*>/i.test(text)){text=text.replace(/<br\s*\/?>/gi,'\n').replace(/<\/(div|p|li)>/gi,'\n');const doc=new DOMParser().parseFromString(text,'text/html');doc.querySelectorAll('script,style,iframe,object').forEach(x=>x.remove());text=doc.body.textContent||''}return text.replace(/\u00a0/g,' ').replace(/\n{3,}/g,'\n\n').trim()}
+function cleanPlainLines(value){
+  return String(value||'').replace(/\r\n?/g,'\n').replace(/\u00a0/g,' ').replace(/[\u200B-\u200D\uFEFF]/g,'').split('\n').map(line=>line.replace(/[ \t]+/g,' ').trim()).join('\n').replace(/\n{3,}/g,'\n\n').trim();
+}
+function cleanCodeBlock(value){
+  const lines=String(value||'').replace(/\r\n?/g,'\n').replace(/\t/g,'    ').split('\n');
+  while(lines.length&&!lines[0].trim())lines.shift();while(lines.length&&!lines[lines.length-1].trim())lines.pop();
+  const indents=lines.filter(line=>line.trim()).map(line=>(line.match(/^ */)||[''])[0].length),indent=indents.length?Math.min(...indents):0;
+  return lines.map(line=>line.slice(indent).replace(/\s+$/,'')).join('\n');
+}
+function plainContent(value,allowHtml){
+  let text=String(value||'').replace(/\[sound:[^\]]+\]/gi,'');
+  if(!(allowHtml||/<\/?[a-z][\s\S]*>/i.test(text)))return cleanPlainLines(text);
+  const doc=new DOMParser().parseFromString(text.replace(/<!--[\s\S]*?-->/g,''),'text/html'),codeBlocks=[];
+  doc.querySelectorAll('script,style,link,iframe,object,embed,audio,video,source,img,svg,canvas,form,input,button,select,textarea,noscript,template').forEach(node=>node.remove());
+  doc.querySelectorAll('pre').forEach(node=>{const token=`\uE000QS_PRE_${codeBlocks.length}\uE001`;codeBlocks.push(cleanCodeBlock(node.textContent));node.replaceWith(doc.createTextNode(`\n${token}\n`))});
+  doc.querySelectorAll('ruby').forEach(node=>{const readings=[...node.querySelectorAll('rt')].map(x=>cleanPlainLines(x.textContent)).filter(Boolean);node.querySelectorAll('rt,rp').forEach(x=>x.remove());const base=cleanPlainLines(node.textContent),reading=readings.join('、');node.replaceWith(doc.createTextNode(base+(reading?`（${reading}）`:'')))});
+  doc.querySelectorAll('table').forEach(table=>{const rows=[...table.querySelectorAll('tr')].map(row=>[...row.querySelectorAll(':scope > th,:scope > td')].map(cell=>cleanPlainLines(cell.textContent).replace(/\n+/g,' / ')).filter(Boolean).join(' ｜ ')).filter(Boolean);table.replaceWith(doc.createTextNode(`\n${rows.join('\n')}\n`))});
+  doc.querySelectorAll('li').forEach(item=>{const list=item.parentElement,items=list?[...list.children].filter(x=>x.tagName==='LI'):[],marker=list&&list.tagName==='OL'?`${items.indexOf(item)+1}. `:'• ';item.insertBefore(doc.createTextNode(marker),item.firstChild)});
+  doc.querySelectorAll('dt').forEach(node=>node.append(doc.createTextNode('：')));
+  doc.querySelectorAll('sup').forEach(node=>node.replaceWith(doc.createTextNode(`^(${cleanPlainLines(node.textContent)})`)));
+  doc.querySelectorAll('sub').forEach(node=>node.replaceWith(doc.createTextNode(`_(${cleanPlainLines(node.textContent)})`)));
+  doc.querySelectorAll('br').forEach(node=>node.replaceWith(doc.createTextNode('\n')));
+  doc.querySelectorAll('hr').forEach(node=>node.replaceWith(doc.createTextNode('\n——\n')));
+  doc.querySelectorAll('p,div,section,article,header,footer,main,aside,h1,h2,h3,h4,h5,h6,li,blockquote,details,summary,dt,dd').forEach(node=>node.append(doc.createTextNode('\n')));
+  text=cleanPlainLines(doc.body.textContent||'');
+  codeBlocks.forEach((block,index)=>{text=text.replace(`\uE000QS_PRE_${index}\uE001`,block)});
+  return text.trim();
+}
 function clozeContent(front){const answers=[];const display=front.replace(/\{\{c\d+::([\s\S]*?)(?:::(.*?))?\}\}/gi,(_,answer,hint)=>{answers.push(answer);return`[${hint||'…'}]`});return{display,answers}}
 function cardId(front,deck,guid){if(guid)return`anki:${guid}`;let hash=2166136261;for(const ch of `${deck}|${front}`){hash^=ch.charCodeAt(0);hash=Math.imul(hash,16777619)}return`anki:${(hash>>>0).toString(36)}`}
 function openCardDb(){return new Promise((resolve,reject)=>{const req=indexedDB.open('quiet-sheet-data',1);req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains('cards'))req.result.createObjectStore('cards',{keyPath:'id'})};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error)})}
 async function dbReadCards(){try{const db=await openCardDb();return await new Promise((resolve,reject)=>{const req=db.transaction('cards').objectStore('cards').getAll();req.onsuccess=()=>resolve(req.result||[]);req.onerror=()=>reject(req.error)})}catch{try{return JSON.parse(localStorage.getItem('quiet-sheet-imported-cards')||'[]')}catch{return[]}}}
 async function dbWriteCards(cards){try{const db=await openCardDb();await new Promise((resolve,reject)=>{const tx=db.transaction('cards','readwrite'),store=tx.objectStore('cards');store.clear();cards.forEach(card=>store.put(card));tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)})}catch{localStorage.setItem('quiet-sheet-imported-cards',JSON.stringify(cards))}}
 function importedOnly(){return words.filter(x=>x.source==='anki')}
+const hiddenBuiltinsKey='quiet-sheet-hidden-builtins';
+function localCardKey(card){return card?.id||`builtin:${card?.word||''}`}
+function hiddenBuiltinIds(){try{return new Set(JSON.parse(localStorage.getItem(hiddenBuiltinsKey)||'[]'))}catch{return new Set()}}
+function applyHiddenBuiltins(){const hidden=hiddenBuiltinIds();if(!hidden.size)return;const kept=words.filter(card=>card.source==='anki'||!hidden.has(localCardKey(card)));words.splice(0,words.length,...kept)}
+async function deleteLocalCards(ids){
+  const removed=new Set(ids),hidden=hiddenBuiltinIds(),keptBuiltins=[];
+  words.filter(card=>card.source!=='anki').forEach(card=>{const id=localCardKey(card);if(removed.has(id))hidden.add(id);else keptBuiltins.push(card)});
+  const keptImported=importedOnly().filter(card=>!removed.has(localCardKey(card)));
+  await dbWriteCards(keptImported);localStorage.setItem(hiddenBuiltinsKey,JSON.stringify([...hidden]));
+  removed.forEach(id=>{delete progress[id];if(id.startsWith('builtin:'))delete progress[id.slice(8)]});localStorage.setItem('quiet-sheet-progress',JSON.stringify(progress));
+  words.splice(0,words.length,...keptBuiltins,...keptImported);updateWordCounts();
+}
+window.qsLocalCardKey=localCardKey;window.qsDeleteLocalCards=deleteLocalCards;applyHiddenBuiltins();
 function replaceImported(cards){const builtins=words.filter(x=>x.source!=='anki');words.splice(0,words.length,...builtins,...cards);updateWordCounts()}
 function updateWordCounts(){document.querySelectorAll('.tools [data-view="library"] small').forEach(x=>x.textContent=`${words.length} 条`)}
 async function confirmAnkiImport(){
@@ -64,6 +104,17 @@ async function confirmAnkiImport(){
 }
 
 $('#importAnki').onclick=()=>ankiInput.click();
-ankiInput.onchange=event=>{const file=event.target.files?.[0];if(!file)return;if(file.size>12*1024*1024){alert('第一版支持最大 12MB 的文本文件。');event.target.value='';return}const reader=new FileReader();reader.onload=()=>{try{const text=String(reader.result||'');if(text.includes('\uFFFD'))alert('文件中出现无法识别的字符，请确认它使用 UTF-8 编码。');const parsed=parseAnkiText(text);if(!parsed.rows.length)throw new Error('没有可导入的记录');showAnkiDialog(parsed,file.name)}catch(error){alert(`无法解析文件：${error.message}`)}};reader.readAsText(file,'utf-8');event.target.value=''};
+const ankiSoftLimit=12*1024*1024,ankiHardLimit=50*1024*1024,importState=document.getElementById('importState');
+function setImportState(text){if(importState)importState.textContent=text}
+ankiInput.onchange=event=>{
+  const file=event.target.files?.[0];if(!file)return;const sizeMb=(file.size/1024/1024).toFixed(1);
+  if(file.size>ankiHardLimit){alert(`文件为 ${sizeMb}MB，超过当前 50MB 上限。请按牌组或标签拆分后导入。`);setImportState('超过 50MB');event.target.value='';return}
+  if(file.size>ankiSoftLimit&&!confirm(`文件为 ${sizeMb}MB，解析期间页面可能短暂无响应。\n是否继续读取？`)){setImportState('已取消');event.target.value='';return}
+  const reader=new FileReader();setImportState(`正在读取 0%`);
+  reader.onprogress=progress=>{if(progress.lengthComputable)setImportState(`正在读取 ${Math.min(100,Math.round(progress.loaded/progress.total*100))}%`)};
+  reader.onerror=()=>{setImportState('读取失败');alert('无法读取文件，请确认文件未被占用。')};
+  reader.onload=()=>{setImportState('正在解析…');requestAnimationFrame(()=>setTimeout(()=>{try{const text=String(reader.result||'');if(text.includes('\uFFFD'))alert('文件中出现无法识别的字符，请确认它使用 UTF-8 编码。');const parsed=parseAnkiText(text);if(!parsed.rows.length)throw new Error('没有可导入的记录');setImportState(`已识别 ${parsed.rows.length.toLocaleString()} 条`);showAnkiDialog(parsed,file.name)}catch(error){setImportState('解析失败');alert(`无法解析文件：${error.message}`)}},20))};
+  reader.readAsText(file,'utf-8');event.target.value='';
+};
 
 dbReadCards().then(cards=>{replaceImported(cards);render()});
