@@ -115,4 +115,45 @@ addEventListener("keydown",e=>{if(document.querySelector("dialog[open]"))return;
 document.querySelectorAll("[data-view]").forEach(b=>b.addEventListener("click",()=>{if(b.dataset.view==="review")filter="全部";window.qsManageMode=false;window.qsSyncManageButton&&window.qsSyncManageButton();window.studySearchQuery="";window.qsSelectedBatch="";studySelection.clear();selected=0;studyPage=0;revealed=false;setTimeout(render,0)}));
 const manage=document.getElementById("manageCards");if(manage)manage.addEventListener("click",()=>setTimeout(render,0));
 render();
+
+/* UI v4: laptop-friendly quick switch and an optional detail focus mode. */
+let detailFocus=false;
+function setDetailFocus(enabled){
+ detailFocus=Boolean(enabled)&&!cover&&view!=="game";
+ document.body.classList.toggle("detailFocus",detailFocus);
+ decorateDetail();
+}
+function decorateDetail(){
+ const header=ws.querySelector(".review>header"),pane=ws.querySelector(".review>.detailPane");if(!header||!pane)return;
+ let button=header.querySelector("#detailFocusToggle");
+ if(!button){
+  button=document.createElement("button");button.id="detailFocusToggle";button.className="detailFocusToggle";
+  button.type="button";button.addEventListener("click",()=>setDetailFocus(!detailFocus));header.appendChild(button);
+ }
+ const label=detailFocus?"\u8fd4\u56de\u8868\u683c":"\u4e13\u6ce8";if(button.textContent!==label)button.textContent=label;
+ button.title=detailFocus?"\u6062\u590d\u5b8c\u6574\u5de5\u4f5c\u8868":"\u4ec5\u663e\u793a\u9879\u76ee\u8be6\u60c5";
+}
+function quickSwitch(){
+ setDetailFocus(false);cover=!cover;render();
+}
+const panicButton=document.getElementById("panic");
+if(panicButton){
+ panicButton.textContent="\u0060 \u5feb\u901f\u5207\u6362";
+ panicButton.title="\u6309\u952e\u76d8\u5de6\u4e0a\u89d2\u3001\u6570\u5b57 1 \u5de6\u4fa7\u7684\u53cd\u5f15\u53f7\u952e\u5feb\u901f\u5207\u6362";
+ panicButton.onclick=quickSwitch;
+}
+new MutationObserver(decorateDetail).observe(ws,{childList:true,subtree:true});
+decorateDetail();
+addEventListener("keydown",e=>{
+ if(document.querySelector("dialog[open]")){if(e.key==="Escape"||e.code==="Backquote")e.stopImmediatePropagation();return}
+ if(e.code==="Backquote"&&!e.ctrlKey&&!e.altKey&&!e.metaKey){
+  e.preventDefault();e.stopImmediatePropagation();quickSwitch();return;
+ }
+ if(e.key==="Escape"){
+  e.stopImmediatePropagation();
+  if(detailFocus){e.preventDefault();setDetailFocus(false)}
+ }
+},true);
+document.querySelectorAll("[data-view]").forEach(button=>button.addEventListener("click",()=>setDetailFocus(false)));
+document.getElementById("coverTab")?.addEventListener("click",()=>setDetailFocus(false));
 })();

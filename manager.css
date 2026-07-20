@@ -32,3 +32,44 @@
 .summary{height:48px;grid-template-columns:150px 150px 150px minmax(520px,1fr)}.summary>div{padding:5px 14px;display:flex;align-items:center;gap:10px}.summary small{font-size:11px;white-space:nowrap}.summary b{font-size:18px}.summary>div>span{display:none}.summary .planSettings p{margin:0;display:flex;align-items:center;gap:8px;min-width:0}.summary .planSettings{overflow:hidden}.summary .dataOverview p{margin:0;color:#555;font-size:11px;white-space:nowrap}.summary .dataOverview p b{font-size:13px;color:#185c37}
 .managebar{min-height:34px;height:34px;padding:3px 8px;flex-wrap:nowrap;overflow-x:visible;gap:5px}.managebar button,.managebar input{height:26px}.studySearchBox{height:27px;width:270px;flex:none}.studySearchBox input{height:25px}.batchFilterLabel,.dailyLimit,.reviewSetting{height:26px}.batchFilterLabel select,.reviewSetting select{height:26px}.pageControls{flex:none;margin-left:auto}.pageControls button{height:26px}
 @media(max-width:1280px){.managebar{overflow-x:auto}.summary{grid-template-columns:135px 135px 135px minmax(500px,1fr);overflow-x:auto}.summary .planSettings{overflow:visible}}
+/* UI v4: restrained desktop-spreadsheet styling. */
+html,body{font-family:Aptos,"Segoe UI","Microsoft YaHei UI","Microsoft YaHei",Arial,sans-serif}
+.tabs{background:#f6f6f6;border-bottom-color:#c9c9c9}
+.tabs button{padding:0 13px;border-radius:0}
+.tabs button.active{background:#fff;border-bottom-width:2px}
+.tabs #panic{font-size:11px;color:#555;padding-left:12px;padding-right:12px}
+.ribbon{background:#fff;border-bottom-color:#aeb2b5}
+.paste{font-size:25px;color:#20683f;border-right-color:#d0d0d0}
+.tools{gap:0}
+.tools button{min-width:90px;border-radius:0;border-right:1px solid #ededed}
+.tools button>b,.tools button:nth-child(n)>b{width:23px;height:23px;border-radius:1px;background:#f4f4f4;color:#2f5f45;border:1px solid #b8c7bd;font-size:14px;font-weight:600}
+.tools button:nth-child(3)>b{color:#765415;border-color:#cdbf9d;background:#faf8f1}
+.tools button:hover{background:#f3f3f3}
+.cell em,.answerOk,.answerMissing,.answerFormat,.detailStatus{border-radius:2px}
+.managebar button,.managebar input,.studySearchBox,.batchFilterLabel select,.reviewSetting select{border-radius:0}
+.review{border-color:#8f8f8f;box-shadow:0 5px 18px #00000025}
+.review>header{display:flex;align-items:center;padding:0 10px}
+.review>header small{float:none;margin-left:auto}
+.detailFocusToggle{height:24px;margin-left:9px;padding:0 9px;border:1px solid #a6a6a6;background:#fafafa;color:#444;cursor:pointer;font-size:11px}
+.detailFocusToggle:hover{border-color:#217346;background:#f3f8f4}
+.excel>footer button{border-radius:0}
+
+/* Detail focus mode keeps a thin workbook title while dedicating the sheet to review. */
+body.detailFocus .excel>.tabs,body.detailFocus .excel>.ribbon,body.detailFocus .excel>.formula,body.detailFocus .excel>footer{display:none}
+body.detailFocus .title{height:29px}
+body.detailFocus .workspace{min-height:0;background:#e7e7e7;padding:12px}
+body.detailFocus .sheet{padding:0;overflow:hidden;background:#f7f7f7;border:1px solid #b8b8b8}
+body.detailFocus .sheet>.headers,body.detailFocus .sheet>.summary,body.detailFocus .sheet>.managebar,body.detailFocus .sheet>.table{display:none}
+body.detailFocus .review{position:absolute;inset:0;width:auto;display:flex;flex-direction:column;border:0;box-shadow:none}
+body.detailFocus .review>header{height:36px;flex:none}
+body.detailFocus .review>.detailPane{flex:1;min-height:0;display:flex;flex-direction:column;padding:12px 14px!important}
+body.detailFocus .detailScroll{flex:1;max-height:none;min-height:0}
+body.detailFocus .detailText{font-size:14px;line-height:1.75;padding:12px 14px}
+body.detailFocus .detailPane>section,body.detailFocus .detailPane>.reveal{flex:none}
+@media(max-width:700px){body.detailFocus .workspace{padding:5px}body.detailFocus .review>header small{display:none}}
+
+/* Keep management/import ribbon icons in the same restrained Excel palette. */
+.tools #manageCards b,.tools button#importAnki b,.tools button#importCover b{background:#f4f4f4;color:#2f5f45;border-color:#b8c7bd}
+
+/* Align the floating detail pane more closely with the worksheet status bar. */
+.review{bottom:36px}
