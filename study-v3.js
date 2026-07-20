@@ -1,7 +1,7 @@
 /* Study v3: lean project table, stable Chinese search, local row selection, real daily queue. */
 (function(){
 "use strict";
-const SIZE=150,LEGACY="legacy-import",BUILTIN_BATCH="__builtin__";
+const SIZE=150,LEGACY="legacy-import",BUILTIN_BATCH="__builtin__",DAILY_QUEUE_KEY="quiet-sheet-daily-queue-v1";
 let searchTimer=0,composing=false,daily=Math.max(5,Math.min(100,Number(localStorage.getItem("quiet-sheet-daily-new-limit"))||20)),queueIds=new Set(),queue={due:0,newCards:0,learnedNew:0,done:0,total:0};
 window.qsSelectedBatch=window.qsSelectedBatch||"";
 function date(value=new Date()){const y=value.getFullYear(),m=String(value.getMonth()+1).padStart(2,"0"),d=String(value.getDate()).padStart(2,"0");return y+"-"+m+"-"+d}
@@ -14,7 +14,7 @@ function normalize(card){
  return card;
 }
 window.qsNormalizeCard=normalize;
-let reviewScope=localStorage.getItem("quiet-sheet-review-scope")||"",reviewOrders=(()=>{try{const value=JSON.parse(localStorage.getItem("quiet-sheet-review-orders")||"{}");return value&&typeof value==="object"?value:{}}catch{return{}}})(),queueOrder=new Map();
+let reviewScope=localStorage.getItem("quiet-sheet-review-scope")||"",reviewOrders=(()=>{try{const value=JSON.parse(localStorage.getItem("quiet-sheet-review-orders")||"{}");return value&&typeof value==="object"?value:{}}catch{return{}}})(),queueOrder=new Map(),dailyQueueState=readDailyQueue();
 function cardBatch(card){return card.source==="anki"?normalize(card).importBatchId:BUILTIN_BATCH}
 function scopePreferenceKey(){return reviewScope||"__all__"}
 function reviewOrder(scope=reviewScope){const value=reviewOrders[scope||"__all__"];if(!scope)return value==="sequential"||value==="random"?value:"perBatch";return value==="random"?"random":"sequential"}
@@ -36,9 +36,13 @@ function matchText(card){
  return q.split(/\s+/).every(x=>text.includes(x));
 }
 function kind(card){return filter==="全部"||card.kind===filter}
+function readDailyQueue(){try{const value=JSON.parse(localStorage.getItem(DAILY_QUEUE_KEY)||"null");return value&&typeof value==="object"&&Array.isArray(value.ids)?value:null}catch{return null}}
+function queueSignature(now){const orders=Object.keys(reviewOrders).sort().map(id=>id+":"+reviewOrders[id]).join(",");return[now,reviewScope||"__all__",reviewOrder(""),orders,daily,words.length].join("|")}
+function saveDailyQueue(state){dailyQueueState=state;try{localStorage.setItem(DAILY_QUEUE_KEY,JSON.stringify(state))}catch{}}
 function rebuildQueue(){
- ensureReviewScope();const now=date(),base=words.filter(inReviewScope),due=base.filter(card=>{const p=progress[key(card)];return p&&p.reviewedAt!==now&&String(p.next||now)<=now}),fresh=base.filter(card=>!progress[key(card)]),learnedNew=Object.values(progress).filter(p=>p&&p.firstLearnedAt===now).length,remaining=Math.max(0,daily-learnedNew);
- const orderedDue=orderedForToday(due),news=orderedForToday(fresh).slice(0,remaining),ordered=orderedDue.concat(news);queueIds=new Set(ordered.map(key));queueOrder=new Map(ordered.map((card,index)=>[key(card),index]));queue={due:orderedDue.length,newCards:news.length,learnedNew:learnedNew,done:Object.values(progress).filter(p=>p&&p.reviewedAt===now).length,total:ordered.length};
+ ensureReviewScope();const now=date(),base=words.filter(inReviewScope),due=base.filter(card=>{const p=progress[key(card)];return p&&p.reviewedAt!==now&&String(p.next||now)<=now}),fresh=base.filter(card=>!progress[key(card)]),learnedNew=Object.values(progress).filter(p=>p&&p.firstLearnedAt===now).length,remaining=Math.max(0,daily-learnedNew),signature=queueSignature(now),cardsReady=window.qsCardsLoaded!==false,eligible=new Map(due.concat(fresh).map(card=>[key(card),card]));
+ let ordered;if(!cardsReady){ordered=orderedForToday(due).concat(orderedForToday(fresh).slice(0,remaining))}else if(dailyQueueState&&dailyQueueState.signature===signature){ordered=dailyQueueState.ids.map(id=>eligible.get(id)).filter(Boolean);const ids=ordered.map(key);if(ids.length!==dailyQueueState.ids.length)saveDailyQueue({signature,ids})}else{const orderedDue=orderedForToday(due),news=orderedForToday(fresh).slice(0,remaining);ordered=orderedDue.concat(news);saveDailyQueue({signature,ids:ordered.map(key)})}
+ const dueIds=new Set(due.map(key)),freshIds=new Set(fresh.map(key));queueIds=new Set(ordered.map(key));queueOrder=new Map(ordered.map((card,index)=>[key(card),index]));queue={due:ordered.filter(card=>dueIds.has(key(card))).length,newCards:ordered.filter(card=>freshIds.has(key(card))).length,learnedNew,done:Object.values(progress).filter(p=>p&&p.reviewedAt===now).length,total:ordered.length};
 }
 window.studyMatches=function(card){if(!matchText(card))return false;if(view==="review")return queueIds.has(key(card));if(view==="library"&&window.qsSelectedBatch){if(window.qsSelectedBatch===BUILTIN_BATCH)return card.source!=="anki";return card.source==="anki"&&normalize(card).importBatchId===window.qsSelectedBatch}return true};
 rate=function(r){
@@ -105,15 +109,15 @@ async function deleteBatch(){const id=window.qsSelectedBatch,b=batches().find(x=
 function bind(list,start,pages){
  bindSearch();document.querySelectorAll("[data-filter]").forEach(b=>b.onclick=()=>{filter=b.dataset.filter;selected=0;studyPage=0;studySelection.clear();revealed=false;render()});
  document.querySelectorAll("[data-check]").forEach(b=>b.onclick=e=>{const id=b.dataset.check,n=Number(b.dataset.index);if(e.shiftKey&&studyAnchor>=0){const a=Math.min(studyAnchor,n),z=Math.max(studyAnchor,n);if(!e.ctrlKey&&!e.metaKey)studySelection.clear();list.slice(a,z+1).forEach(x=>studySelection.add(window.qsLocalCardKey(x)))}else{if(studySelection.has(id))studySelection.delete(id);else studySelection.add(id);studyAnchor=n}syncChecks()});
- document.querySelectorAll("[data-word]").forEach(b=>{let t=0;b.onclick=()=>{clearTimeout(t);t=setTimeout(()=>{const p=capture(),n=Number(b.dataset.word);if(n===selected)revealed=!revealed;else{selected=n;revealed=false}render();restore(p)},180)};if(b.dataset.edit==="1")b.ondblclick=e=>{e.preventDefault();clearTimeout(t);editCard(list[Number(b.dataset.word)])}});
+ document.querySelectorAll("[data-word]").forEach(b=>b.onclick=()=>{const p=capture(),n=Number(b.dataset.word);if(n===selected)revealed=!revealed;else{selected=n;revealed=false}render();restore(p)});
  document.querySelectorAll("[data-rate]").forEach(b=>b.onclick=()=>rate(b.dataset.rate));const reveal=document.getElementById("reveal");if(reveal)reveal.onclick=()=>{const p=capture();revealed=true;render();restore(p)};const edit=document.getElementById("editCard");if(edit)edit.onclick=()=>editCard(list[selected]);
+ const detailText=document.querySelector(".review .detailText");if(detailText&&list[selected]?.source==="anki")detailText.ondblclick=()=>editCard(list[selected]);
  const prev=document.getElementById("prevPage"),next=document.getElementById("nextPage");if(prev)prev.onclick=()=>{studyPage=Math.max(0,studyPage-1);selected=studyPage*SIZE;revealed=false;render()};if(next)next.onclick=()=>{studyPage=Math.min(pages-1,studyPage+1);selected=studyPage*SIZE;revealed=false;render()};
  const sp=document.getElementById("selectPage"),sa=document.getElementById("selectAll"),cs=document.getElementById("clearSelection");if(sp)sp.onclick=()=>{list.slice(start,start+SIZE).forEach(x=>studySelection.add(window.qsLocalCardKey(x)));syncChecks()};if(sa)sa.onclick=()=>{list.forEach(x=>studySelection.add(window.qsLocalCardKey(x)));syncChecks()};if(cs)cs.onclick=()=>{studySelection.clear();syncChecks()};
  const ac=document.getElementById("applyCategory"),dr=document.getElementById("deleteRows"),bf=document.getElementById("batchFilter"),db=document.getElementById("deleteBatch"),dl=document.getElementById("dailyLimit"),rs=document.getElementById("reviewScope"),ro=document.getElementById("reviewOrder");if(ac)ac.onclick=changeCategory;if(dr)dr.onclick=deleteRows;if(bf)bf.onchange=()=>{window.qsSelectedBatch=bf.value;selected=0;studyPage=0;studySelection.clear();revealed=false;render()};if(db)db.onclick=deleteBatch;if(dl)dl.onchange=()=>{daily=Math.max(5,Math.min(100,Number(dl.value)||20));localStorage.setItem("quiet-sheet-daily-new-limit",String(daily));selected=0;studyPage=0;render()};if(rs)rs.onchange=()=>{reviewScope=rs.value;filter="全部";localStorage.setItem("quiet-sheet-review-scope",reviewScope);selected=0;studyPage=0;revealed=false;render()};if(ro)ro.onchange=()=>{reviewOrders[scopePreferenceKey()]=ro.value;localStorage.setItem("quiet-sheet-review-orders",JSON.stringify(reviewOrders));selected=0;studyPage=0;revealed=false;render()};
 }
-addEventListener("keydown",e=>{if(document.querySelector("dialog[open]"))return;const t=e.target;if(t&&(/INPUT|TEXTAREA|SELECT|BUTTON/.test(t.tagName)||t.isContentEditable))return;if(e.key==="Escape"&&window.qsManageMode){e.preventDefault();window.qsManageMode=false;studySelection.clear();window.qsSyncManageButton&&window.qsSyncManageButton();render();return}if(cover||view==="game")return;const list=visible();if(!list.length)return;if(e.key===" "||e.key==="Enter"){e.preventDefault();e.stopImmediatePropagation();const p=capture();revealed=!revealed;render();restore(p);return}if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault();e.stopImmediatePropagation();const p=capture();selected=Math.max(0,Math.min(list.length-1,selected+(e.key==="ArrowDown"?1:-1)));revealed=false;render();restore(p)}},true);
+addEventListener("keydown",e=>{if(document.querySelector("dialog[open]"))return;const t=e.target;if(t&&(/INPUT|TEXTAREA|SELECT|BUTTON/.test(t.tagName)||t.isContentEditable)){e.stopImmediatePropagation();return}if(e.key==="Escape"&&window.qsManageMode){e.preventDefault();window.qsManageMode=false;studySelection.clear();window.qsSyncManageButton&&window.qsSyncManageButton();render();return}if(cover||view==="game")return;const list=visible();if(!list.length)return;if(e.key===" "||e.key==="Enter"){e.preventDefault();e.stopImmediatePropagation();const p=capture();revealed=!revealed;render();restore(p);return}if(e.key==="ArrowDown"||e.key==="ArrowUp"){e.preventDefault();e.stopImmediatePropagation();const p=capture();selected=Math.max(0,Math.min(list.length-1,selected+(e.key==="ArrowDown"?1:-1)));revealed=false;render();restore(p)}},true);
 document.querySelectorAll("[data-view]").forEach(b=>b.addEventListener("click",()=>{if(b.dataset.view==="review")filter="全部";window.qsManageMode=false;window.qsSyncManageButton&&window.qsSyncManageButton();window.studySearchQuery="";window.qsSelectedBatch="";studySelection.clear();selected=0;studyPage=0;revealed=false;setTimeout(render,0)}));
-const manage=document.getElementById("manageCards");if(manage)manage.addEventListener("click",()=>setTimeout(render,0));
 render();
 
 /* UI v4: laptop-friendly quick switch and an optional detail focus mode. */
@@ -154,6 +158,6 @@ addEventListener("keydown",e=>{
   if(detailFocus){e.preventDefault();setDetailFocus(false)}
  }
 },true);
-document.querySelectorAll("[data-view]").forEach(button=>button.addEventListener("click",()=>setDetailFocus(false)));
-document.getElementById("coverTab")?.addEventListener("click",()=>setDetailFocus(false));
+document.querySelectorAll("[data-view]").forEach(button=>button.addEventListener("click",e=>{e.stopImmediatePropagation();setDetailFocus(false);view=button.dataset.view;cover=false;if(view==="review")filter="\u5168\u90e8";window.qsManageMode=false;window.qsSyncManageButton&&window.qsSyncManageButton();window.studySearchQuery="";window.qsSelectedBatch="";studySelection.clear();selected=0;studyPage=0;revealed=false;render()},true));
+document.getElementById("coverTab")?.addEventListener("click",e=>{e.stopImmediatePropagation();setDetailFocus(false);cover=true;render()},true);
 })();

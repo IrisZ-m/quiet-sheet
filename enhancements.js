@@ -117,4 +117,4 @@ ankiInput.onchange=event=>{
   reader.readAsText(file,'utf-8');event.target.value='';
 };
 
-dbReadCards().then(cards=>{replaceImported(cards);render()});
+window.qsCardsLoaded=false;dbReadCards().then(cards=>{replaceImported(cards);window.qsCardsLoaded=true;render()});
